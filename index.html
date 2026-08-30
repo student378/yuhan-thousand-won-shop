@@ -662,9 +662,11 @@ function renderDateNotice(){
     el.innerHTML='<div class="lock-notice"><div class="li">🔒</div><p>'+esc(fDateKr(selectedDate))+' 운영 예정</p><small>신청은 해당 날짜 당일에만 가능합니다</small></div>';
   } else {
     const limit=Number(DAY_LIMIT||0);
-    el.innerHTML = limit>0
-      ? '<div style="font-size:11px;color:var(--gray500);margin-top:7px">오늘 신청 <b style="color:var(--primary)">'+todayCount+'</b>명 / 오늘 판매 인원 '+limit+'명</div>'
-      : '';
+    if(!limit){ el.innerHTML=''; return; }
+    const over = todayCount>=limit;
+    el.innerHTML = over
+      ? '<div style="font-size:11px;color:#92400e;background:#fff7ed;border:1.5px solid var(--orange);border-radius:8px;padding:8px 10px;margin-top:7px;line-height:1.6">⚠️ 오늘 신청 <b>'+todayCount+'</b>명 / 예정 '+limit+'명 <b>초과 접수 중</b><br>신청은 가능하지만 현장 재고 상황에 따라 수령이 제한될 수 있습니다.</div>'
+      : '<div style="font-size:11px;color:var(--gray500);margin-top:7px">오늘 신청 <b style="color:var(--primary)">'+todayCount+'</b>명 / 오늘 판매 인원 '+limit+'명</div>';
   }
 }
 
@@ -682,16 +684,20 @@ function renderBanner(){
   const limit=Number(DAY_LIMIT||0);
   const sold=todayCount;
   const rem=Math.max(0,limit-sold);
+  const over=limit>0 && sold>=limit;
   const el=(id,v)=>{document.getElementById(id).textContent=v;};
   el('bannerTotal', limit>0?limit.toLocaleString():'무제한');
   el('bannerSold', sold.toLocaleString());
-  el('bannerRemain', limit>0?rem.toLocaleString():'—');
+  el('bannerRemain', limit>0?(over?'마감임박':rem.toLocaleString()):'—');
   const re=document.getElementById('bannerRemain');
-  re.style.color = (limit>0 && rem<=10) ? 'var(--red)' : 'var(--green)';
+  if(over){ re.style.color='var(--orange)'; re.style.fontSize='13px'; }
+  else { re.style.color=(limit>0&&rem<=10)?'var(--red)':'var(--green)'; re.style.fontSize=''; }
   const pct = limit>0 ? Math.round(sold/limit*100) : 0;
-  document.getElementById('liveNote').textContent = limit>0
-    ? '※ 오늘 판매 진행률 '+pct+'% · 현장 사정에 따라 실제 수량과 차이가 있을 수 있습니다.'
-    : '※ 현장 사정에 따라 실제 수량과 차이가 있을 수 있습니다.';
+  document.getElementById('liveNote').textContent = !limit
+    ? '※ 현장 사정에 따라 실제 수량과 차이가 있을 수 있습니다.'
+    : (over
+       ? '※ 오늘 예정 인원('+limit+'명)을 넘어섰습니다. 신청은 계속 가능하나 현장 상황에 따라 수령이 어려울 수 있습니다.'
+       : '※ 오늘 판매 진행률 '+pct+'% · 현장 사정에 따라 실제 수량과 차이가 있을 수 있습니다.');
 }
 
 function renderCatList(){
@@ -940,10 +946,9 @@ function validate(){
       return false;
     }
   }
-  if(Number(DAY_LIMIT||0)>0 && todayCount>=Number(DAY_LIMIT)){
-    alert('😔 오늘 판매 인원('+DAY_LIMIT+'명)이 모두 마감되었습니다.\n내일 다시 신청해주세요.');
-    return false;
-  }
+  // ※ 인원 한도 초과 신청 허용 — 천원아침밥과 동일 정책
+  //   한도에 도달해도 신청은 계속 받고, 현장에서 관리자 승인으로 관리합니다.
+  //   (재고 0인 품목만 위에서 차단)
   if(!selectedPay){ alert('송금 방법을 선택해주세요.'); return false; }
   if(!selectedPickup){ alert('수령 방법을 선택해주세요.'); return false; }
   return true;
