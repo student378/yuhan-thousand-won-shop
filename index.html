@@ -567,11 +567,17 @@ function loadStock(done){
   DAY_QTY = plan.items; DAY_LIMIT = plan.limit;
   if(IS_DEMO){
     SOLD = {};
-    const apps = localApps().filter(r=>r.date===todayStr);
-    apps.forEach(r=>{
+    const basis = LS.get('basis','approve');
+    const approved = new Set(LS.get('approved',[])||[]);
+    const all = localApps().filter(r=>r.date===todayStr);
+    // 재고 차감 기준: 승인(현장 수령 확인) 또는 신청 즉시
+    const counted = (basis==='approve')
+      ? all.filter(r=>approved.has(r.date+'_'+r.studentId))
+      : all;
+    counted.forEach(r=>{
       (r.picks||[]).forEach(p=>{ const k=itemKey(p.cat,p.item); SOLD[k]=(SOLD[k]||0)+1; });
     });
-    todayCount = apps.length;
+    todayCount = all.length;   // 신청 인원은 승인과 무관하게 전체
     if(done) done();
     return;
   }
@@ -1108,6 +1114,7 @@ document.addEventListener('DOMContentLoaded',function(){
         LS.set('account',{bank:d.bank||'카카오뱅크',no:d.bankNo||'3333-13-8457612',owner:d.bankOwner||'최 광 균',amt:d.bankAmt||'1,000원'});
         if(d.schedule) LS.set('schedule',d.schedule);
         if(d.display) LS.set('display',d.display);
+        if(d.basis) LS.set('basis',d.basis);
         if(d.deptList) LS.set('dept_list',d.deptList);
         if(d.soldoutManual!==undefined) LS.set('soldout',{manual:d.soldoutManual==='true'||d.soldoutManual===true, msg:d.soldoutMsg||'금일 천원매점 판매가 종료되었습니다. 감사합니다.'});
         buildDeptSelect(); applyAccountInfo(); buildDateTabs(); checkOverlays(); updateSubmitBtn();
@@ -1124,7 +1131,8 @@ document.addEventListener('DOMContentLoaded',function(){
   window.addEventListener('storage', function(e){
     if(!e.key) return;
     if(e.key==='yuhan_st_schedule'||e.key==='yuhan_st_soldout'||e.key==='yuhan_st_account'
-       ||e.key==='yuhan_st_daily_plan'||e.key==='yuhan_st_stock_override'||e.key==='yuhan_st_display'){
+       ||e.key==='yuhan_st_daily_plan'||e.key==='yuhan_st_stock_override'||e.key==='yuhan_st_display'
+       ||e.key==='yuhan_st_approved'||e.key==='yuhan_st_basis'){
       loadStock(function(){
         applyAccountInfo();
         buildDateTabs();
