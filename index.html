@@ -338,7 +338,7 @@ body{font-family:'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif
         <div class="account-row"><div class="num">2</div><span>계좌이체 통장번호 (<span id="acctBankInline">카카오뱅크</span>)</span></div>
         <div class="account-highlight">
           <div class="bank-name" id="acctBankLabel">카카오뱅크</div>
-          <div class="acno" id="acctNo">3333-13-8457612</div>
+          <div class="acno" id="acctNo">3333-38-2874766</div>
           <div class="name">예금주: <span id="acctOwner">최 광 균</span></div>
         </div>
         <div class="account-row" style="margin-top:9px"><div class="num">3</div><span>이체 화면(휴대폰)을 <strong>수령 시 담당자에게 보여주세요.</strong></span></div>
@@ -392,7 +392,7 @@ body{font-family:'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif
     <div class="transfer-box" id="transferBox" style="display:none">
       <div class="tb-title">💳 계좌이체 안내</div>
       <div class="tb-bank" id="tbBank">카카오뱅크</div>
-      <div class="tb-no" id="tbNo">3333-13-8457612</div>
+      <div class="tb-no" id="tbNo">3333-38-2874766</div>
       <div style="font-size:11px;color:#64748b;margin-bottom:4px">예금주: <span id="tbOwner">최 광 균</span></div>
       <div class="tb-amt">💰 이체 금액: <span id="tbAmt">1,000원</span></div>
     </div>
@@ -502,7 +502,7 @@ function getSchedule(){
   return LS.get('schedule',{start:'',end:'',days:[0,1,2,3,4,5,6],dailyLimit:0,startTime:'10:00',endTime:'16:00'});
 }
 function getAccount(){
-  return LS.get('account',{bank:'카카오뱅크',no:'3333-13-8457612',owner:'최 광 균',amt:'1,000원'});
+  return LS.get('account',{bank:'카카오뱅크',no:'3333-38-2874766',owner:'최 광 균',amt:'1,000원'});
 }
 function getSoldOut(){
   return LS.get('soldout',{manual:false,msg:'금일 천원매점 판매가 종료되었습니다. 감사합니다.'});
@@ -1120,7 +1120,7 @@ document.addEventListener('DOMContentLoaded',function(){
     fetchFromGAS({action:'getSettings'}, function(res,err){
       if(!err && res && res.status==='ok' && res.data){
         const d=res.data;
-        LS.set('account',{bank:d.bank||'카카오뱅크',no:d.bankNo||'3333-13-8457612',owner:d.bankOwner||'최 광 균',amt:d.bankAmt||'1,000원'});
+        LS.set('account',{bank:d.bank||'카카오뱅크',no:d.bankNo||'3333-38-2874766',owner:d.bankOwner||'최 광 균',amt:d.bankAmt||'1,000원'});
         if(d.schedule) LS.set('schedule',d.schedule);
         if(d.display) LS.set('display',d.display);
         if(d.basis) LS.set('basis',d.basis);
