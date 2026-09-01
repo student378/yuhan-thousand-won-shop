@@ -338,7 +338,7 @@ body{font-family:'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif
         <div class="account-row"><div class="num">2</div><span>계좌이체 통장번호 (<span id="acctBankInline">카카오뱅크</span>)</span></div>
         <div class="account-highlight">
           <div class="bank-name" id="acctBankLabel">카카오뱅크</div>
-          <div class="acno" id="acctNo">3333-38-2874766</div>
+          <div class="acno" id="acctNo">3333-13-8457612</div>
           <div class="name">예금주: <span id="acctOwner">최 광 균</span></div>
         </div>
         <div class="account-row" style="margin-top:9px"><div class="num">3</div><span>이체 화면(휴대폰)을 <strong>수령 시 담당자에게 보여주세요.</strong></span></div>
@@ -392,7 +392,7 @@ body{font-family:'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif
     <div class="transfer-box" id="transferBox" style="display:none">
       <div class="tb-title">💳 계좌이체 안내</div>
       <div class="tb-bank" id="tbBank">카카오뱅크</div>
-      <div class="tb-no" id="tbNo">3333-38-2874766</div>
+      <div class="tb-no" id="tbNo">3333-13-8457612</div>
       <div style="font-size:11px;color:#64748b;margin-bottom:4px">예금주: <span id="tbOwner">최 광 균</span></div>
       <div class="tb-amt">💰 이체 금액: <span id="tbAmt">1,000원</span></div>
     </div>
@@ -502,7 +502,7 @@ function getSchedule(){
   return LS.get('schedule',{start:'',end:'',days:[0,1,2,3,4,5,6],dailyLimit:0,startTime:'10:00',endTime:'16:00'});
 }
 function getAccount(){
-  return LS.get('account',{bank:'카카오뱅크',no:'3333-38-2874766',owner:'최 광 균',amt:'1,000원'});
+  return LS.get('account',{bank:'카카오뱅크',no:'3333-13-8457612',owner:'최 광 균',amt:'1,000원'});
 }
 function getSoldOut(){
   return LS.get('soldout',{manual:false,msg:'금일 천원매점 판매가 종료되었습니다. 감사합니다.'});
@@ -620,7 +620,14 @@ function buildDeptSelect(){
   sel.innerHTML='<option value="">-- 학과를 선택하세요 --</option>'+list.map(d=>'<option>'+esc(d)+'</option>').join('');
 }
 
+// ── 확정 운영일 목록 (관리자가 "날짜 확정"한 날짜만 신청 가능) ──
+//   fixed.on === true 이면 아래 list에 있는 날짜만 허용한다.
+function getFixedDays(){ return LS.get('fixed_days',{on:false,list:[]}) || {on:false,list:[]}; }
+
 function isOperDay(dateStr){
+  const fx=getFixedDays();
+  // ★ 확정 모드: 지정한 날짜 외에는 전부 차단 (요일·기간 규칙보다 우선)
+  if(fx.on) return (fx.list||[]).indexOf(dateStr)!==-1;
   const sc=getSchedule();
   // 시작일/종료일 미설정(빈 문자열)이면 제한 없음
   if(sc.start && sc.start.length===10 && dateStr<sc.start) return false;
@@ -931,6 +938,11 @@ function validate(){
   if(name.length<2){ alert('성명을 입력해주세요.'); return false; }
 
   if(!selectedDate){ alert('현재 운영 예정일이 없습니다.'); return false; }
+  // ★ 확정된 운영일이 아니면 차단
+  if(!isOperDay(selectedDate)){
+    alert('❌ '+fDateKr(selectedDate)+'은(는) 천원매점 운영일이 아닙니다.\n운영일에 다시 신청해주세요.');
+    return false;
+  }
   if(selectedDate!==todayStr){ alert('❌ 신청은 해당 날짜 당일에만 가능합니다.'); return false; }
 
   const so=getSoldOut();
@@ -1024,6 +1036,7 @@ function submitApply(){
       setTimeout(function(){ b.disabled=false; updateSubmitBtn(); submitApply(); },2000);
       return;
     }
+    if(res && res.status==='closed'){ alert('❌ '+(res.message||'운영일이 아닙니다.')+'\n운영일에 다시 신청해주세요.'); document.getElementById('submitBtn').disabled=false; updateSubmitBtn(); return; }
     if(res && res.status==='duplicate'){ alert('⚠️ 이미 해당 날짜에 신청이 완료된 학번입니다.'); document.getElementById('submitBtn').disabled=false; updateSubmitBtn(); return; }
     if(res && res.status==='soldout'){ alert('😔 일시품절된 품목이 있습니다. 화면을 새로고침한 뒤 다시 선택해주세요.'); loadStock(function(){renderBanner();refreshPicks(null);}); return; }
     alert('❌ 신청 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
@@ -1120,9 +1133,10 @@ document.addEventListener('DOMContentLoaded',function(){
     fetchFromGAS({action:'getSettings'}, function(res,err){
       if(!err && res && res.status==='ok' && res.data){
         const d=res.data;
-        LS.set('account',{bank:d.bank||'카카오뱅크',no:d.bankNo||'3333-38-2874766',owner:d.bankOwner||'최 광 균',amt:d.bankAmt||'1,000원'});
+        LS.set('account',{bank:d.bank||'카카오뱅크',no:d.bankNo||'3333-13-8457612',owner:d.bankOwner||'최 광 균',amt:d.bankAmt||'1,000원'});
         if(d.schedule) LS.set('schedule',d.schedule);
         if(d.display) LS.set('display',d.display);
+        if(d.fixedDays) LS.set('fixed_days',d.fixedDays);
         if(d.basis) LS.set('basis',d.basis);
         if(d.deptList) LS.set('dept_list',d.deptList);
         if(d.soldoutManual!==undefined) LS.set('soldout',{manual:d.soldoutManual==='true'||d.soldoutManual===true, msg:d.soldoutMsg||'금일 천원매점 판매가 종료되었습니다. 감사합니다.'});
@@ -1141,7 +1155,7 @@ document.addEventListener('DOMContentLoaded',function(){
     if(!e.key) return;
     if(e.key==='yuhan_st_schedule'||e.key==='yuhan_st_soldout'||e.key==='yuhan_st_account'
        ||e.key==='yuhan_st_daily_plan'||e.key==='yuhan_st_stock_override'||e.key==='yuhan_st_display'
-       ||e.key==='yuhan_st_approved'||e.key==='yuhan_st_basis'){
+       ||e.key==='yuhan_st_approved'||e.key==='yuhan_st_basis'||e.key==='yuhan_st_fixed_days'){
       loadStock(function(){
         applyAccountInfo();
         buildDateTabs();
