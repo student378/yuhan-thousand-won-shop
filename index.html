@@ -352,7 +352,7 @@ body{font-family:'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif
       </div>
       <div class="form-group" style="margin:13px 0 0">
         <label class="form-label">수령 방법 <span class="req">*</span></label>
-        <div class="pickup-options">
+        <div class="pickup-options" id="pickupOptions">
           <button type="button" class="pickup-btn" id="pickupDirect" onclick="selectPickup('직접수령')">
             <div class="pu-icon">🛒</div>
             <div class="pu-label">직접 수령</div>
@@ -508,7 +508,25 @@ function getSoldOut(){
   return LS.get('soldout',{manual:false,msg:'금일 천원매점 판매가 종료되었습니다. 감사합니다.'});
 }
 // 관리자가 설정한 학생 화면 노출 옵션 (기본: 잔여량 숨김)
-function getDisplay(){ return LS.get('display',{showStock:false,showHeadcount:true}); }
+function getDisplay(){ return LS.get('display',{showStock:false,showHeadcount:true,drimiOn:true,drimiMsg:''}); }
+// 드리미 운영 여부에 따라 버튼 표시/숨김
+function applyDrimiVisibility(){
+  const d=getDisplay();
+  const on=d.drimiOn!==false;
+  const btn=document.getElementById('pickupDrimi');
+  const box=document.getElementById('pickupOptions');
+  if(btn) btn.style.display=on?'':'none';
+  if(box) box.style.gridTemplateColumns=on?'1fr 1fr':'1fr';
+  const info=document.getElementById('drimiInfo');
+  if(info&&d.drimiMsg) info.innerHTML='🙋 <b>드리미 서비스 안내</b><br>'+esc(d.drimiMsg).replace(/\n/g,'<br>');
+  // 운영 중단 시 이미 선택돼 있으면 해제
+  if(!on&&selectedPickup==='드리미서비스'){
+    selectedPickup='';
+    if(btn) btn.classList.remove('selected');
+    if(info) info.classList.remove('show');
+    updateSubmitBtn();
+  }
+}
 // 총 입고 원장 (관리자가 수정했다면 그 값 우선)
 function getStockMap(){
   const ov = LS.get('stock_override',{}) || {};
@@ -854,6 +872,10 @@ function selectPay(m){
   updateSubmitBtn();
 }
 function selectPickup(m){
+  if(m==='드리미서비스' && getDisplay().drimiOn===false){
+    alert('현재 드리미 서비스는 운영하지 않습니다.\n직접 수령을 선택해주세요.');
+    return;
+  }
   selectedPickup=m;
   document.getElementById('pickupDirect').classList.toggle('selected',m==='직접수령');
   document.getElementById('pickupDrimi').classList.toggle('selected',m==='드리미서비스');
@@ -978,6 +1000,10 @@ function validate(){
   //   (재고 0인 품목만 위에서 차단)
   if(!selectedPay){ alert('송금 방법을 선택해주세요.'); return false; }
   if(!selectedPickup){ alert('수령 방법을 선택해주세요.'); return false; }
+  if(selectedPickup==='드리미서비스' && getDisplay().drimiOn===false){
+    alert('현재 드리미 서비스는 운영하지 않습니다.\n직접 수령을 선택해주세요.');
+    return false;
+  }
   return true;
 }
 
@@ -1123,6 +1149,7 @@ document.addEventListener('DOMContentLoaded',function(){
   buildDeptSelect();
   applyAccountInfo();
   buildDateTabs();
+  applyDrimiVisibility();
   renderCatList(); renderCounter(); renderSummary();
 
   loadStock(function(){
@@ -1158,6 +1185,7 @@ document.addEventListener('DOMContentLoaded',function(){
        ||e.key==='yuhan_st_approved'||e.key==='yuhan_st_basis'||e.key==='yuhan_st_fixed_days'){
       loadStock(function(){
         applyAccountInfo();
+        applyDrimiVisibility();
         buildDateTabs();
         renderBanner();
         renderCatList();
