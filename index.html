@@ -240,8 +240,8 @@ body{font-family:'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif
 <!-- 운영 시간 외 -->
 <div class="full-overlay overlay-time" id="overlayTime">
   <div class="ov-icon">⏰</div>
-  <h2>지금은 신청 시간이 아닙니다</h2>
-  <p>천원매점 신청은 <strong id="overlayStartTime">10:00</strong> 부터<br><strong id="overlayEndTime">16:00</strong> 까지 가능합니다.</p>
+  <h2 id="overlayTimeTitle">지금은 신청 시간이 아닙니다</h2>
+  <p id="overlayTimeBody">천원매점 신청은 <strong>10:00</strong> 부터<br><strong>16:00</strong> 까지 가능합니다.</p>
   <div class="ov-time" id="overlayCurrentTime">현재 시간: --:--:--</div>
 </div>
 
@@ -767,6 +767,15 @@ function renderBanner(){
   }
   if(bannerEl) bannerEl.style.display='';
   if(noteEl) noteEl.style.display='';
+  // ★ 오늘이 운영일이 아니면 판매 수치를 숨긴다 (100개 등 오해 방지)
+  if(!isOperDay(todayStr)){
+    const el0=(id,v)=>{const e=document.getElementById(id); if(e) e.textContent=v;};
+    el0('bannerTotal','—'); el0('bannerSold','—'); el0('bannerRemain','휴무');
+    const re0=document.getElementById('bannerRemain');
+    if(re0){ re0.style.color='var(--gray500)'; re0.style.fontSize='15px'; }
+    if(noteEl) noteEl.textContent='※ 오늘은 천원매점 운영일이 아닙니다.';
+    return;
+  }
   const limit=Number(DAY_LIMIT||0);
   const sold=todayCount;
   const rem=Math.max(0,limit-sold);
@@ -996,6 +1005,14 @@ function applyAccountInfo(){
 function updateSubmitBtn(){
   const btn=document.getElementById('submitBtn');
   const so=getSoldOut();
+  // ★ 오늘이 운영일이 아니면 무조건 잠금
+  if(!isOperDay(todayStr)){ btn.disabled=true; btn.innerHTML='📭 오늘은 운영일이 아닙니다'; return; }
+  // ★ 신청 시간 외에도 잠금
+  const sc=getSchedule();
+  const nowMin=new Date().getHours()*60+new Date().getMinutes();
+  if(nowMin<parseTime(sc.startTime||'10:00') || nowMin>=parseTime(sc.endTime||'16:00')){
+    btn.disabled=true; btn.innerHTML='⏰ 신청 시간이 아닙니다'; return;
+  }
   if(!selectedDate){ btn.disabled=true; btn.innerHTML='📭 운영일이 아닙니다'; return; }
   if(selectedDate!==todayStr){ btn.disabled=true; btn.innerHTML='🔒 당일에만 신청 가능'; return; }
   if(so.manual){ btn.disabled=true; btn.innerHTML='⛔ 판매 종료'; return; }
@@ -1010,12 +1027,22 @@ function checkOverlays(){
   const nowMin=now.getHours()*60+now.getMinutes();
   const sMin=parseTime(sc.startTime||'10:00'), eMin=parseTime(sc.endTime||'16:00');
   const isOperToday = isOperDay(fDate(now));
-  const outOfTime = isOperToday && (nowMin<sMin || nowMin>=eMin);
+  // ★ 운영일이 아닌 날에도 화면을 막는다 (기존에는 운영일에만 시간 검사를 해서 그냥 열렸음)
+  const outOfTime = !isOperToday || (nowMin<sMin || nowMin>=eMin);
 
   const ot=document.getElementById('overlayTime');
   if(outOfTime){
-    document.getElementById('overlayStartTime').textContent=sc.startTime||'10:00';
-    document.getElementById('overlayEndTime').textContent=sc.endTime||'16:00';
+    const title=document.getElementById('overlayTimeTitle');
+    const body=document.getElementById('overlayTimeBody');
+    if(!isOperToday){
+      if(title) title.textContent='오늘은 운영일이 아닙니다';
+      if(body) body.innerHTML='천원매점 운영일에 다시 방문해 주세요.<br>운영 시간은 <strong>'
+        +esc(sc.startTime||'10:00')+' ~ '+esc(sc.endTime||'16:00')+'</strong> 입니다.';
+    } else {
+      if(title) title.textContent='지금은 신청 시간이 아닙니다';
+      if(body) body.innerHTML='천원매점 신청은 <strong>'+esc(sc.startTime||'10:00')
+        +'</strong> 부터<br><strong>'+esc(sc.endTime||'16:00')+'</strong> 까지 가능합니다.';
+    }
     ot.classList.add('show');
   } else ot.classList.remove('show');
 
