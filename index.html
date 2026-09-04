@@ -143,6 +143,20 @@ body{font-family:'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif
 .item-btn:disabled{opacity:.55;cursor:not-allowed;background:var(--gray100)}
 
 /* ── 선택 요약 ── */
+/* ── 꾸러미 데이 ── */
+#bundleBox{background:linear-gradient(135deg,#f5f3ff,#ede9fe);border:2px solid #8b5cf6;border-radius:12px;padding:14px}
+.bundle-head{font-size:15px;font-weight:800;color:#5b21b6;margin-bottom:5px}
+.bundle-desc{font-size:11.5px;color:#6d28d9;line-height:1.6;margin-bottom:11px}
+.bundle-list{display:flex;flex-direction:column;gap:7px}
+.bundle-item{display:flex;align-items:center;gap:9px;background:#fff;border:1.5px solid #ddd6fe;border-radius:9px;padding:9px 11px}
+.bundle-item.out{opacity:.55;background:#fef2f2;border-color:#fca5a5}
+.bundle-item .bi-icon{font-size:20px;flex-shrink:0}
+.bundle-item .bi-name{flex:1;font-size:12.5px;color:var(--gray900);line-height:1.45}
+.bundle-item .bi-name b{font-size:11px;color:#6d28d9}
+.bundle-item .bi-tag{font-size:10px;font-weight:800;background:#ede9fe;color:#5b21b6;border-radius:20px;padding:3px 9px;flex-shrink:0}
+.bundle-item.out .bi-tag{background:#fee2e2;color:#991b1b}
+.bundle-note{font-size:11px;color:#5b21b6;margin-top:10px;line-height:1.6}
+
 .pick-summary{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
 .pick-chip{display:inline-flex;align-items:center;gap:6px;background:var(--primary-light);border:1.5px solid var(--primary);border-radius:20px;padding:5px 6px 5px 11px;font-size:11px;font-weight:500;color:var(--primary-dark);max-width:100%}
 .pick-chip .pcname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -322,6 +336,7 @@ body{font-family:'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif
         <div class="pc-msg" id="pcMsg">7개 대분류 중 서로 다른 4개를 골라, 각 대분류에서 품목 1개씩 선택하세요.</div>
       </div>
 
+      <div id="bundleBox" style="display:none"></div>
       <div class="cat-list" id="catList"></div>
 
       <div id="pickSummary"></div>
@@ -508,6 +523,20 @@ function getSoldOut(){
   return LS.get('soldout',{manual:false,msg:'금일 천원매점 판매가 종료되었습니다. 감사합니다.'});
 }
 // 관리자가 설정한 학생 화면 노출 옵션 (기본: 잔여량 숨김)
+// 관리자가 수동으로 판매중지한 품목 { '대분류|품명': true }
+function getManualSoldout(){ return LS.get('manual_soldout',{}) || {}; }
+
+// ── 꾸러미 데이 ──
+function getBundle(){ return LS.get('bundle',{on:false,name:'',date:'',msg:'',picks:[]}) || {on:false,picks:[]}; }
+// 오늘 꾸러미 데이가 적용되는가 (날짜 미지정이면 운영일 전체)
+function isBundleDay(){
+  const b=getBundle();
+  if(!b.on) return false;
+  if(!(b.picks||[]).length) return false;
+  if(b.date && b.date!==todayStr) return false;
+  return true;
+}
+
 function getDisplay(){ return LS.get('display',{showStock:false,showHeadcount:true,drimiOn:true,drimiMsg:''}); }
 // 드리미 운영 여부에 따라 버튼 표시/숨김
 function applyDrimiVisibility(){
@@ -558,7 +587,8 @@ function getDayPlan(date){
 // ── 상태 ──
 let DAY_QTY = {};               // 당일 품목별 판매 갯수
 let DAY_LIMIT = 0;              // 당일 판매 인원
-let SOLD  = {};                 // 당일 품목별 판매
+let SOLD  = {};                 // 당일 품목별 판매 (표시용 — 관리자 차감 기준 반영)
+let CLAIMED = {};               // 당일 품목별 '신청된' 수량 (품절 판정 전용 — 항상 신청 기준)
 let picks = {};                 // {대분류: 소분류}
 let selectedDate = '';
 let selectedPay  = '';
@@ -566,7 +596,15 @@ let selectedPickup = '';       // 수령 방법: '직접수령' | '드리미서�
 let todayStr = '';
 let todayCount = 0;             // 오늘 신청 인원
 
-function remainOf(cat,name){ const k=itemKey(cat,name); return Math.max(0,(DAY_QTY[k]||0)-(SOLD[k]||0)); }
+// 실제 선택 가능 수량 = 당일 배정 − 신청된 수량 (승인 여부와 무관)
+//  ※ 승인 기준으로 계산하면 승인 전 신청분이 재고에 반영되지 않아
+//    물건이 다 나갔는데도 계속 신청되는 문제가 생긴다.
+function remainOf(cat,name){
+  const k=itemKey(cat,name);
+  // ★ 관리자가 판매중지한 품목은 재고와 무관하게 0으로 처리
+  if(getManualSoldout()[k]) return 0;
+  return Math.max(0,(DAY_QTY[k]||0)-(CLAIMED[k]||0));
+}
 function catRemain(cat){
   const g=CATALOG.find(x=>x.c===cat); if(!g) return 0;
   return g.items.reduce((s,it)=>s+remainOf(cat,it.n),0);
@@ -604,6 +642,11 @@ function loadStock(done){
     counted.forEach(r=>{
       (r.picks||[]).forEach(p=>{ const k=itemKey(p.cat,p.item); SOLD[k]=(SOLD[k]||0)+1; });
     });
+    // 품절 판정용: 승인 여부와 관계없이 신청된 모든 건을 집계
+    CLAIMED = {};
+    all.forEach(r=>{
+      (r.picks||[]).forEach(p=>{ const k=itemKey(p.cat,p.item); CLAIMED[k]=(CLAIMED[k]||0)+1; });
+    });
     todayCount = all.length;   // 신청 인원은 승인과 무관하게 전체
     if(done) done();
     return;
@@ -617,6 +660,9 @@ function loadStock(done){
       if(res.data.dayQty) DAY_QTY = res.data.dayQty;
       if(res.data.limit!==undefined) DAY_LIMIT = Number(res.data.limit);
       SOLD = res.data.sold || {};
+      CLAIMED = res.data.claimed || res.data.sold || {};
+      if(res.data.manualSoldout) LS.set('manual_soldout',res.data.manualSoldout);
+      if(res.data.bundle) LS.set('bundle',res.data.bundle);
       todayCount = res.data.todayCount || 0;
       if(res.data.soldoutManual!==undefined){
         const so=getSoldOut();
@@ -740,6 +786,58 @@ function renderBanner(){
        : '※ 오늘 판매 진행률 '+pct+'% · 현장 사정에 따라 실제 수량과 차이가 있을 수 있습니다.');
 }
 
+// 꾸러미 모드: 선택 UI를 감추고 고정 품목을 보여준다
+function applyBundleMode(){
+  const on=isBundleDay();
+  const b=getBundle();
+  const catCard=document.getElementById('catList');
+  const counter=document.querySelector('.pick-counter');
+  const summary=document.getElementById('pickSummary');
+  const box=document.getElementById('bundleBox');
+
+  if(!on){
+    if(catCard) catCard.style.display='';
+    if(counter) counter.style.display='';
+    if(summary) summary.style.display='';
+    if(box) box.style.display='none';
+    return;
+  }
+  // 선택 UI 숨김
+  if(catCard) catCard.style.display='none';
+  if(counter) counter.style.display='none';
+  if(summary) summary.style.display='none';
+
+  // 지정 품목을 강제로 확정
+  picks={};
+  (b.picks||[]).forEach(p=>{ picks[p.cat]=p.item; });
+
+  if(box){
+    box.style.display='block';
+    box.innerHTML='<div class="bundle-head">🎁 '+esc(b.name||'꾸러미 데이')+'</div>'
+      +'<div class="bundle-desc">'+esc(b.msg||'재고 정리를 위한 특별 꾸러미입니다. 품목은 변경할 수 없습니다.')+'</div>'
+      +'<div class="bundle-list">'
+      + (b.picks||[]).map(function(p){
+          const g=CATALOG.find(x=>x.c===p.cat);
+          const rem=remainOf(p.cat,p.item);
+          return '<div class="bundle-item'+(rem<=0?' out':'')+'" style="border-left:5px solid '+catColor(p.cat)+'">'
+            +'<span class="bi-icon">'+(g?g.icon:'📦')+'</span>'
+            +'<span class="bi-name"><b>'+esc(p.cat)+'</b><br>'+esc(p.item)+'</span>'
+            +'<span class="bi-tag">'+(rem<=0?'품절':'확정')+'</span></div>';
+        }).join('')
+      +'</div>'
+      +'<div class="bundle-note">※ 위 4개 품목이 자동으로 신청됩니다. 수령은 <b>드리미 서비스</b>로만 가능합니다.</div>';
+  }
+  // 수령 방법: 드리미 고정
+  const direct=document.getElementById('pickupDirect');
+  const drimi=document.getElementById('pickupDrimi');
+  const opts=document.getElementById('pickupOptions');
+  if(direct) direct.style.display='none';
+  if(drimi) drimi.style.display='';
+  if(opts) opts.style.gridTemplateColumns='1fr';
+  selectPickup('드리미서비스');
+  renderCounter(); updateSubmitBtn();
+}
+
 function renderCatList(){
   const wrap=document.getElementById('catList');
   const showStock = !!getDisplay().showStock;
@@ -788,6 +886,7 @@ function toggleCat(gi){
 }
 
 function pickItem(gi,ii){
+  if(isBundleDay()){ showToast('꾸러미 데이에는 품목을 변경할 수 없습니다.'); return; }
   const g=CATALOG[gi], it=g.items[ii];
   const cat=g.c, name=it.n;
   const already=picks[cat];
@@ -817,6 +916,7 @@ function pickItem(gi,ii){
 }
 
 function removePick(cat){
+  if(isBundleDay()){ showToast('꾸러미 데이에는 품목을 변경할 수 없습니다.'); return; }
   delete picks[cat];
   refreshPicks(null);
 }
@@ -872,7 +972,11 @@ function selectPay(m){
   updateSubmitBtn();
 }
 function selectPickup(m){
-  if(m==='드리미서비스' && getDisplay().drimiOn===false){
+  if(isBundleDay() && m!=='드리미서비스'){
+    alert('꾸러미 데이에는 드리미 서비스로만 수령할 수 있습니다.');
+    return;
+  }
+  if(m==='드리미서비스' && getDisplay().drimiOn===false && !isBundleDay()){
     alert('현재 드리미 서비스는 운영하지 않습니다.\n직접 수령을 선택해주세요.');
     return;
   }
@@ -998,6 +1102,20 @@ function validate(){
   // ※ 인원 한도 초과 신청 허용 — 천원아침밥과 동일 정책
   //   한도에 도달해도 신청은 계속 받고, 현장에서 관리자 승인으로 관리합니다.
   //   (재고 0인 품목만 위에서 차단)
+  // ★ 꾸러미 데이 검증
+  if(isBundleDay()){
+    const b=getBundle();
+    const want=(b.picks||[]).map(p=>p.cat+'|'+p.item).sort().join(',');
+    const have=Object.keys(picks).map(c=>c+'|'+picks[c]).sort().join(',');
+    if(want!==have){
+      alert('🎁 꾸러미 데이에는 지정된 품목만 신청할 수 있습니다.\n화면을 새로고침한 뒤 다시 시도해주세요.');
+      return false;
+    }
+    if(selectedPickup!=='드리미서비스'){
+      alert('🎁 꾸러미 데이에는 드리미 서비스로만 수령할 수 있습니다.');
+      return false;
+    }
+  }
   if(!selectedPay){ alert('송금 방법을 선택해주세요.'); return false; }
   if(!selectedPickup){ alert('수령 방법을 선택해주세요.'); return false; }
   if(selectedPickup==='드리미서비스' && getDisplay().drimiOn===false){
@@ -1008,6 +1126,28 @@ function validate(){
 }
 
 function submitApply(){
+  // ★ 제출 직전 최신 재고를 다시 받아 품절 여부를 재확인한다.
+  //   (다른 학생이 방금 신청해 품절되었을 수 있음)
+  const btn=document.getElementById('submitBtn');
+  if(!btn.dataset.rechecked){
+    btn.disabled=true; btn.innerHTML='⏳ 재고 확인 중...';
+    loadStock(function(){
+      renderBanner(); refreshPicks(null); renderDateNotice();
+      btn.disabled=false; updateSubmitBtn();
+      // 방금 품절된 품목이 있으면 알리고 중단
+      const gone=Object.keys(picks).filter(c=>remainOf(c,picks[c])<=0);
+      if(gone.length){
+        alert('😔 「'+gone.map(c=>picks[c]).join(', ')+'」이(가) 방금 일시품절되었습니다.\n다른 품목으로 변경해주세요.');
+        gone.forEach(c=>delete picks[c]);
+        refreshPicks(null);
+        return;
+      }
+      btn.dataset.rechecked='1';
+      submitApply();
+      delete btn.dataset.rechecked;
+    });
+    return;
+  }
   if(!validate()) return;
   const now=new Date();
   const timeStr=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0')+':'+String(now.getSeconds()).padStart(2,'0');
@@ -1062,9 +1202,16 @@ function submitApply(){
       setTimeout(function(){ b.disabled=false; updateSubmitBtn(); submitApply(); },2000);
       return;
     }
+    if(res && (res.status==='bundle_mismatch'||res.status==='bundle_pickup')){
+      alert('🎁 '+(res.message||'꾸러미 데이 조건에 맞지 않습니다.')+'\n화면을 새로고침한 뒤 다시 시도해주세요.');
+      document.getElementById('submitBtn').disabled=false; updateSubmitBtn(); return;
+    }
     if(res && res.status==='closed'){ alert('❌ '+(res.message||'운영일이 아닙니다.')+'\n운영일에 다시 신청해주세요.'); document.getElementById('submitBtn').disabled=false; updateSubmitBtn(); return; }
     if(res && res.status==='duplicate'){ alert('⚠️ 이미 해당 날짜에 신청이 완료된 학번입니다.'); document.getElementById('submitBtn').disabled=false; updateSubmitBtn(); return; }
-    if(res && res.status==='soldout'){ alert('😔 일시품절된 품목이 있습니다. 화면을 새로고침한 뒤 다시 선택해주세요.'); loadStock(function(){renderBanner();refreshPicks(null);}); return; }
+    if(res && res.status==='soldout'){
+      alert(res.reason==='manual'
+        ? '😔 「'+(res.item||'선택 품목')+'」은(는) 현재 판매가 중지되었습니다.\n다른 품목으로 변경해주세요.'
+        : '😔 「'+(res.item||'선택 품목')+'」이(가) 일시품절되었습니다.\n다른 품목으로 변경해주세요.'); loadStock(function(){renderBanner();refreshPicks(null);}); return; }
     alert('❌ 신청 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
     document.getElementById('submitBtn').disabled=false; updateSubmitBtn();
   });
@@ -1151,6 +1298,7 @@ document.addEventListener('DOMContentLoaded',function(){
   buildDateTabs();
   applyDrimiVisibility();
   renderCatList(); renderCounter(); renderSummary();
+  applyBundleMode();
 
   loadStock(function(){
     renderBanner(); renderCatList(); renderDateNotice(); checkOverlays(); updateSubmitBtn();
@@ -1163,6 +1311,8 @@ document.addEventListener('DOMContentLoaded',function(){
         LS.set('account',{bank:d.bank||'카카오뱅크',no:d.bankNo||'3333-13-8457612',owner:d.bankOwner||'최 광 균',amt:d.bankAmt||'1,000원'});
         if(d.schedule) LS.set('schedule',d.schedule);
         if(d.display) LS.set('display',d.display);
+        if(d.manualSoldout) LS.set('manual_soldout',d.manualSoldout);
+        if(d.bundle) LS.set('bundle',d.bundle);
         if(d.fixedDays) LS.set('fixed_days',d.fixedDays);
         if(d.basis) LS.set('basis',d.basis);
         if(d.deptList) LS.set('dept_list',d.deptList);
@@ -1175,17 +1325,19 @@ document.addEventListener('DOMContentLoaded',function(){
   updateClock(); setInterval(updateClock,1000);
   setInterval(function(){
     loadStock(function(){ renderBanner(); renderCatList(); renderDateNotice(); checkOverlays(); updateSubmitBtn(); });
-  },30000);
+  },10000);   // 품절 반영을 빠르게 하기 위해 10초 주기
 
   // 같은 브라우저에서 관리자가 설정 변경하면 즉시 반영 (데모 모드)
   window.addEventListener('storage', function(e){
     if(!e.key) return;
     if(e.key==='yuhan_st_schedule'||e.key==='yuhan_st_soldout'||e.key==='yuhan_st_account'
        ||e.key==='yuhan_st_daily_plan'||e.key==='yuhan_st_stock_override'||e.key==='yuhan_st_display'
-       ||e.key==='yuhan_st_approved'||e.key==='yuhan_st_basis'||e.key==='yuhan_st_fixed_days'){
+       ||e.key==='yuhan_st_approved'||e.key==='yuhan_st_basis'||e.key==='yuhan_st_fixed_days'
+       ||e.key==='yuhan_st_manual_soldout'||e.key==='yuhan_st_bundle'){
       loadStock(function(){
         applyAccountInfo();
         applyDrimiVisibility();
+        applyBundleMode();
         buildDateTabs();
         renderBanner();
         renderCatList();
