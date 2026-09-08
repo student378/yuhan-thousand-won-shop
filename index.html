@@ -616,7 +616,7 @@ function catRemain(cat){
 function fetchFromGAS(params, callback){
   const q = Object.entries(params).map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&');
   const controller = new AbortController();
-  const timer = setTimeout(()=>controller.abort(), 20000);
+  const timer = setTimeout(()=>controller.abort(), 15000);
   fetch(GAS_URL+'?'+q,{method:'GET',mode:'cors',signal:controller.signal})
     .then(r=>{ clearTimeout(timer); if(!r.ok) throw new Error(r.status); return r.json(); })
     .then(d=>callback(d,null))
@@ -1153,28 +1153,8 @@ function validate(){
 }
 
 function submitApply(){
-  // ★ 제출 직전 최신 재고를 다시 받아 품절 여부를 재확인한다.
-  //   (다른 학생이 방금 신청해 품절되었을 수 있음)
-  const btn=document.getElementById('submitBtn');
-  if(!btn.dataset.rechecked){
-    btn.disabled=true; btn.innerHTML='⏳ 재고 확인 중...';
-    loadStock(function(){
-      renderBanner(); refreshPicks(null); renderDateNotice();
-      btn.disabled=false; updateSubmitBtn();
-      // 방금 품절된 품목이 있으면 알리고 중단
-      const gone=Object.keys(picks).filter(c=>remainOf(c,picks[c])<=0);
-      if(gone.length){
-        alert('😔 「'+gone.map(c=>picks[c]).join(', ')+'」이(가) 방금 일시품절되었습니다.\n다른 품목으로 변경해주세요.');
-        gone.forEach(c=>delete picks[c]);
-        refreshPicks(null);
-        return;
-      }
-      btn.dataset.rechecked='1';
-      submitApply();
-      delete btn.dataset.rechecked;
-    });
-    return;
-  }
+  // 서버(GAS)가 저장 직전에 품절·중복·운영일을 최종 검증하므로
+  // 여기서 별도 재고 재조회를 하지 않는다. (왕복 2회 → 1회로 단축)
   if(!validate()) return;
   const now=new Date();
   const timeStr=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0')+':'+String(now.getSeconds()).padStart(2,'0');
@@ -1189,18 +1169,30 @@ function submitApply(){
 
   document.getElementById('loadingOverlay').classList.add('show');
   document.getElementById('submitBtn').disabled=true;
+  // 오래 걸릴 때 사용자가 멈춘 줄 알고 새로고침하지 않도록 안내
+  const loadTxt=document.querySelector('#loadingOverlay div:last-child');
+  if(loadTxt){
+    loadTxt.textContent='신청 중...';
+    clearTimeout(window.__loadTip1); clearTimeout(window.__loadTip2);
+    window.__loadTip1=setTimeout(()=>{ loadTxt.textContent='서버에 저장하는 중입니다... 잠시만요'; },3000);
+    window.__loadTip2=setTimeout(()=>{ loadTxt.textContent='접속이 몰려 조금 느립니다. 화면을 닫지 말아주세요'; },7000);
+  }
 
   const rec={
     timestamp:now.toISOString(), date:selectedDate, dept, grade, studentId:sid, name,
     applyTime:timeStr, payMethod:selectedPay, pickupMethod:selectedPickup, picks:pickArr
   };
 
-  function done(){
+  function done(fromServer){
+    clearTimeout(window.__loadTip1); clearTimeout(window.__loadTip2);
     document.getElementById('loadingOverlay').classList.remove('show');
     localStorage.setItem(dupKey,'1');
-    loadStock(function(){
+    if(fromServer){
+      // 서버 응답에 최신 재고가 담겨 있으므로 화면만 다시 그린다
       renderBanner(); refreshPicks(null); renderDateNotice();
-    });
+    } else {
+      loadStock(function(){ renderBanner(); refreshPicks(null); renderDateNotice(); });
+    }
     showSuccess(rec);
     picks={};
   }
@@ -1222,7 +1214,15 @@ function submitApply(){
 
   fetchFromGAS(params, function(res,err){
     document.getElementById('loadingOverlay').classList.remove('show');
-    if(!err && res && res.status==='ok'){ done(); return; }
+    if(!err && res && res.status==='ok'){
+      // 서버가 돌려준 최신 재고를 그대로 반영 (추가 조회 불필요)
+      if(res.dayQty) DAY_QTY=res.dayQty;
+      if(res.claimed) CLAIMED=res.claimed;
+      if(res.todayCount!==undefined) todayCount=Number(res.todayCount);
+      if(res.limit!==undefined) DAY_LIMIT=Number(res.limit);
+      done(true);
+      return;
+    }
     if(res && res.status==='busy'){
       const b=document.getElementById('submitBtn');
       b.innerHTML='⏳ 잠시 후 재시도 중... (2초)';
