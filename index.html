@@ -143,6 +143,11 @@ body{font-family:'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif
 .item-btn:disabled{opacity:.55;cursor:not-allowed;background:var(--gray100)}
 
 /* ── 선택 요약 ── */
+/* ── 간편 신청 모드 ── */
+#simpleBox{background:linear-gradient(135deg,#eff6ff,#dbeafe);border:2px solid #3b82f6;border-radius:12px;padding:16px;text-align:center}
+.simple-head{font-size:16px;font-weight:800;color:#1e40af;margin-bottom:7px}
+.simple-desc{font-size:12.5px;color:#1d4ed8;line-height:1.7}
+
 /* ── 꾸러미 데이 ── */
 #bundleBox{background:linear-gradient(135deg,#f5f3ff,#ede9fe);border:2px solid #8b5cf6;border-radius:12px;padding:14px}
 .bundle-head{font-size:15px;font-weight:800;color:#5b21b6;margin-bottom:5px}
@@ -320,7 +325,7 @@ body{font-family:'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif
   </div>
 
   <!-- 물품 선택 -->
-  <div class="card">
+  <div class="card" id="itemCard">
     <div class="card-header"><span class="icon">🛒</span><h2>물품 선택 · 대분류 4개</h2></div>
     <div class="card-body">
 
@@ -337,6 +342,7 @@ body{font-family:'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif
       </div>
 
       <div id="bundleBox" style="display:none"></div>
+      <div id="simpleBox" style="display:none"></div>
       <div class="cat-list" id="catList"></div>
 
       <div id="pickSummary"></div>
@@ -526,6 +532,10 @@ function getSoldOut(){
 // 관리자가 수동으로 판매중지한 품목 { '대분류|품명': true }
 function getManualSoldout(){ return LS.get('manual_soldout',{}) || {}; }
 
+// ── 간편 신청 모드 (관리자가 학생 품목 선택을 잠금) ──
+function getSimple(){ return LS.get('simple',{on:false,msg:''}) || {on:false,msg:''}; }
+function isSimpleMode(){ return !!getSimple().on && !isBundleDay(); }
+
 // ── 꾸러미 데이 ──
 function getBundle(){ return LS.get('bundle',{on:false,name:'',date:'',msg:'',picks:[]}) || {on:false,picks:[]}; }
 // 오늘 꾸러미 데이가 적용되는가 (날짜 미지정이면 운영일 전체)
@@ -599,11 +609,23 @@ let todayCount = 0;             // 오늘 신청 인원
 // 실제 선택 가능 수량 = 당일 배정 − 신청된 수량 (승인 여부와 무관)
 //  ※ 승인 기준으로 계산하면 승인 전 신청분이 재고에 반영되지 않아
 //    물건이 다 나갔는데도 계속 신청되는 문제가 생긴다.
+// 관리자가 지정한 진열대 배정 수량 (미설정이면 전량 진열)
+function getDisplayQty(){ return LS.get('display_qty',{}) || {}; }
+
 function remainOf(cat,name){
   const k=itemKey(cat,name);
   // ★ 관리자가 판매중지한 품목은 재고와 무관하게 0으로 처리
   if(getManualSoldout()[k]) return 0;
-  return Math.max(0,(DAY_QTY[k]||0)-(CLAIMED[k]||0));
+  const total=DAY_QTY[k]||0;
+  const claimed=CLAIMED[k]||0;
+  // ★ 진열대 기준 판정 — 창고에 있어도 진열대가 비면 품절
+  //   display_qty = 창고에서 꺼낸 누적 반출량 (판매분 포함)
+  //   진열 잔여 = 누적반출 − 신청(판매)
+  const dq=getDisplayQty();
+  const raw=dq[k];
+  let out=(raw===undefined||raw===null||raw==='')?total:Number(raw);
+  out=Math.max(claimed, Math.min(out, total));
+  return Math.max(0, out - claimed);
 }
 function catRemain(cat){
   const g=CATALOG.find(x=>x.c===cat); if(!g) return 0;
@@ -663,6 +685,8 @@ function loadStock(done){
       CLAIMED = res.data.claimed || res.data.sold || {};
       if(res.data.manualSoldout) LS.set('manual_soldout',res.data.manualSoldout);
       if(res.data.bundle) LS.set('bundle',res.data.bundle);
+      if(res.data.simple) LS.set('simple',res.data.simple);
+      if(res.data.displayQty) LS.set('display_qty',res.data.displayQty);
       todayCount = res.data.todayCount || 0;
       if(res.data.soldoutManual!==undefined){
         const so=getSoldOut();
@@ -796,6 +820,54 @@ function renderBanner(){
 }
 
 // 꾸러미 모드: 선택 UI를 감추고 고정 품목을 보여준다
+// 간편 모드: 품목 선택을 감추고 기본정보만으로 신청
+function applySimpleMode(){
+  const on=isSimpleMode();
+  const sp=getSimple();
+  const catCard=document.getElementById('catList');
+  const counter=document.querySelector('.pick-counter');
+  const summary=document.getElementById('pickSummary');
+  const box=document.getElementById('simpleBox');
+  const card=document.getElementById('itemCard');
+
+  if(!on){
+    if(box) box.style.display='none';
+    if(card) card.style.display='';
+    // 꾸러미 모드가 아니면 선택 UI를 원래대로 되돌린다
+    if(!isBundleDay()){
+      if(catCard) catCard.style.display='';
+      if(counter) counter.style.display='';
+      if(summary) summary.style.display='';
+      const direct=document.getElementById('pickupDirect');
+      const drimi=document.getElementById('pickupDrimi');
+      const opts=document.getElementById('pickupOptions');
+      if(direct) direct.style.display='';
+      if(drimi) drimi.style.display = (getDisplay().drimiOn===false)?'none':'';
+      if(opts) opts.style.gridTemplateColumns=(getDisplay().drimiOn===false)?'1fr':'1fr 1fr';
+    }
+    return;
+  }
+  // 물품 선택 카드 전체를 숨기고 안내만 표시
+  if(catCard) catCard.style.display='none';
+  if(counter) counter.style.display='none';
+  if(summary) summary.style.display='none';
+  picks={};
+  if(box){
+    box.style.display='block';
+    box.innerHTML='<div class="simple-head">🛒 현장에서 직접 담아가세요</div>'
+      +'<div class="simple-desc">'+esc(sp.msg||'기본 정보만 입력하고 신청하면 됩니다. 물품은 매점 현장에서 직접 담아가세요.')+'</div>';
+  }
+  // 수령 방법: 직접 수령 고정
+  const direct=document.getElementById('pickupDirect');
+  const drimi=document.getElementById('pickupDrimi');
+  const opts=document.getElementById('pickupOptions');
+  if(drimi) drimi.style.display='none';
+  if(direct) direct.style.display='';
+  if(opts) opts.style.gridTemplateColumns='1fr';
+  selectPickup('직접수령');
+  updateSubmitBtn();
+}
+
 function applyBundleMode(){
   const on=isBundleDay();
   const b=getBundle();
@@ -981,6 +1053,10 @@ function selectPay(m){
   updateSubmitBtn();
 }
 function selectPickup(m){
+  if(isSimpleMode() && m!=='직접수령'){
+    alert('간편 신청 기간에는 직접 수령만 가능합니다.');
+    return;
+  }
   if(isBundleDay() && m!=='드리미서비스'){
     alert('꾸러미 데이에는 드리미 서비스로만 수령할 수 있습니다.');
     return;
@@ -1016,6 +1092,7 @@ function updateSubmitBtn(){
   if(!selectedDate){ btn.disabled=true; btn.innerHTML='📭 운영일이 아닙니다'; return; }
   if(selectedDate!==todayStr){ btn.disabled=true; btn.innerHTML='🔒 당일에만 신청 가능'; return; }
   if(so.manual){ btn.disabled=true; btn.innerHTML='⛔ 판매 종료'; return; }
+  if(isSimpleMode()){ btn.disabled=false; btn.innerHTML='🏪 천원매점 신청하기'; return; }
   const n=Object.keys(picks).length;
   if(n<PICK_REQUIRED){ btn.disabled=false; btn.innerHTML='🛒 대분류 '+n+'/4 선택됨'; return; }
   btn.disabled=false; btn.innerHTML='🏪 천원매점 신청하기';
@@ -1106,6 +1183,16 @@ function validate(){
   if(nowMin<parseTime(sc.startTime||'10:00') || nowMin>=parseTime(sc.endTime||'16:00')){
     alert('⏰ 신청 시간이 아닙니다.\n'+(sc.startTime||'10:00')+' ~ '+(sc.endTime||'16:00')+' 사이에 신청해주세요.');
     return false;
+  }
+
+  // ★ 간편 신청 모드: 품목 선택 없이 진행
+  if(isSimpleMode()){
+    if(selectedPickup!=='직접수령'){
+      alert('간편 신청 기간에는 직접 수령만 가능합니다.');
+      return false;
+    }
+    if(!selectedPay){ alert('송금 방법을 선택해주세요.'); return false; }
+    return true;
   }
 
   // ★ 대분류 4개 필수 · 초과 금지 · 대분류 중복 불가
@@ -1238,6 +1325,8 @@ function submitApply(){
     if(res && res.status==='soldout'){
       alert(res.reason==='manual'
         ? '😔 「'+(res.item||'선택 품목')+'」은(는) 현재 판매가 중지되었습니다.\n다른 품목으로 변경해주세요.'
+        : res.reason==='shelf'
+        ? '😔 「'+(res.item||'선택 품목')+'」이(가) 진열대에서 소진되었습니다.\n다른 품목으로 변경해주세요.'
         : '😔 「'+(res.item||'선택 품목')+'」이(가) 일시품절되었습니다.\n다른 품목으로 변경해주세요.'); loadStock(function(){renderBanner();refreshPicks(null);}); return; }
     alert('❌ 신청 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
     document.getElementById('submitBtn').disabled=false; updateSubmitBtn();
@@ -1326,6 +1415,7 @@ document.addEventListener('DOMContentLoaded',function(){
   applyDrimiVisibility();
   renderCatList(); renderCounter(); renderSummary();
   applyBundleMode();
+  applySimpleMode();
 
   loadStock(function(){
     renderBanner(); renderCatList(); renderDateNotice(); checkOverlays(); updateSubmitBtn();
@@ -1340,6 +1430,8 @@ document.addEventListener('DOMContentLoaded',function(){
         if(d.display) LS.set('display',d.display);
         if(d.manualSoldout) LS.set('manual_soldout',d.manualSoldout);
         if(d.bundle) LS.set('bundle',d.bundle);
+        if(d.simple) LS.set('simple',d.simple);
+        if(d.displayQty) LS.set('display_qty',d.displayQty);
         if(d.fixedDays) LS.set('fixed_days',d.fixedDays);
         if(d.basis) LS.set('basis',d.basis);
         if(d.deptList) LS.set('dept_list',d.deptList);
@@ -1360,11 +1452,12 @@ document.addEventListener('DOMContentLoaded',function(){
     if(e.key==='yuhan_st_schedule'||e.key==='yuhan_st_soldout'||e.key==='yuhan_st_account'
        ||e.key==='yuhan_st_daily_plan'||e.key==='yuhan_st_stock_override'||e.key==='yuhan_st_display'
        ||e.key==='yuhan_st_approved'||e.key==='yuhan_st_basis'||e.key==='yuhan_st_fixed_days'
-       ||e.key==='yuhan_st_manual_soldout'||e.key==='yuhan_st_bundle'){
+       ||e.key==='yuhan_st_manual_soldout'||e.key==='yuhan_st_bundle'||e.key==='yuhan_st_simple'||e.key==='yuhan_st_display_qty'){
       loadStock(function(){
         applyAccountInfo();
         applyDrimiVisibility();
         applyBundleMode();
+  applySimpleMode();
         buildDateTabs();
         renderBanner();
         renderCatList();
