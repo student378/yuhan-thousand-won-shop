@@ -8,7 +8,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="version" content="20260910-0022">
+<meta name="version" content="20260916-0001">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2B4D9F">
@@ -564,7 +564,7 @@ function getSoldOut(){
 function getManualSoldout(){ return LS.get('manual_soldout',{}) || {}; }
 
 // ── 간편 신청 모드 (관리자가 학생 품목 선택을 잠금) ──
-function getSimple(){ return LS.get('simple',{on:false,msg:''}) || {on:false,msg:''}; }
+function getSimple(){ return LS.get('simple',{on:true,msg:''}) || {on:true,msg:''}; }
 function isSimpleMode(){ return !!getSimple().on && !isBundleDay(); }
 
 // ── 꾸러미 데이 ──
@@ -650,13 +650,13 @@ function remainOf(cat,name){
   const total=DAY_QTY[k]||0;
   const claimed=CLAIMED[k]||0;
   // ★ 진열대 기준 판정 — 창고에 있어도 진열대가 비면 품절
-  //   display_qty = 창고에서 꺼낸 누적 반출량 (판매분 포함)
-  //   진열 잔여 = 누적반출 − 신청(판매)
+  //   display_qty = 진열대에 올려둔 총 수량 (관리자 입력값)
+  //   진열 잔여 = 올려둔 총량 − 신청(판매), 미설정이면 전량 진열
   const dq=getDisplayQty();
   const raw=dq[k];
-  let out=(raw===undefined||raw===null||raw==='')?total:Number(raw);
-  out=Math.max(claimed, Math.min(out, total));
-  return Math.max(0, out - claimed);
+  let placed=(raw===undefined||raw===null||raw==='')?total:Number(raw);
+  placed=Math.max(0, Math.min(placed, total));
+  return Math.max(0, placed - claimed);
 }
 function catRemain(cat){
   const g=CATALOG.find(x=>x.c===cat); if(!g) return 0;
